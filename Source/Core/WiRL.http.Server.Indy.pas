@@ -129,6 +129,7 @@ begin
   FHttpServer.OnCommandGet := DoCommandGet;
   FHttpServer.OnCommandOther := DoCommandOther;
   FHttpServer.OnParseAuthentication := ParseAuthorizationHeader;
+  FHttpServer.KeepAlive := True;
 end;
 
 destructor TWiRLhttpServerIndy.Destroy;
