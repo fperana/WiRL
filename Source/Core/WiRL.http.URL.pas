@@ -451,10 +451,17 @@ begin
 end;
 
 class function TWiRLURL.URLEncode(const AString: string): string;
+const
+  URLComponentUnsafeChars: TURLEncoding.TUnsafeChars = [
+    Ord('"'), Ord('#'), Ord('$'), Ord('&'), Ord('+'), Ord(','), Ord('/'), Ord(':'), Ord(';'), Ord('<'), {Ord('='),}
+    Ord('>'), Ord('?'), Ord('@'), Ord('['), Ord('\'), Ord(']'), Ord('^'), Ord('`'), Ord('{'), Ord('|'), Ord('}')];
 begin
-  Result := TNetEncoding.URL.Encode(AString, [Ord('&')], [TURLEncoding.TEncodeOption.EncodePercent]);
-  //Result := TIdURI.PathEncode(AString);
-  //Result := StringReplace(Result, '&', '%26', [rfReplaceAll]);
+  Result := TNetEncoding.URL.Encode(AString, URLComponentUnsafeChars, [TURLEncoding.TEncodeOption.EncodePercent]);
+
+//  Result := TNetEncoding.URL.Encode(AString, [Ord('&')], [TURLEncoding.TEncodeOption.EncodePercent]);
+//
+//  //Result := TIdURI.PathEncode(AString);
+//  //Result := StringReplace(Result, '&', '%26', [rfReplaceAll]);
 end;
 
 class function TWiRLURL.URLEncode(const AStrings: TArray<string>): TArray<string>;
