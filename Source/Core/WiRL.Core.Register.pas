@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2019 WiRL Team                                      }
+{       Copyright (c) 2015-2023 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -15,25 +15,44 @@ interface
 
 uses
   System.SysUtils, System.Classes,
+
   WiRL.Rtti.Utils,
-  WiRL.Core.Engine,
+  WiRL.Core.Declarations,
   WiRL.Core.MessageBody.Default,
-  WiRL.http.Engines,
-  WiRL.http.FileSystemEngine,
+  WiRL.Engine.REST,
+  WiRL.Engine.HTTP,
+  WiRL.Engine.WebServer,
+  WiRL.Engine.FileSystem,
   WiRL.http.Server,
-  WiRL.http.Server.Indy;
+  WiRL.http.Server.Indy,
+  WiRL.http.Server.WebBroker;
 
 procedure Register;
 
 const
-  PackageName = 'WiRL';
-  AboutDescription = 'WiRL: Delphi RESTful Library';
-  License = 'Apache License, Version 2.0';
+  WIRL_CAPTION = 'WiRL RESTful Library for Delphi ' + WIRL_VERSION_STR;
+  WIRL_LICENSE = 'Apache License, Version 2.0';
+  WIRL_DESCRIPTION =
+    'WiRL: 100%% RESTful Library for Delphi' + sLineBreak + sLineBreak +
+    'Copyright © 2015-%d WiRL Team. All rights reserved.' + sLineBreak +
+    'https://github.com/delphi-blocks/WiRL' + sLineBreak + sLineBreak +
+    '[Powered by]' + sLineBreak + sLineBreak +
+    'Delphi JOSE and JWT Library' + sLineBreak +
+    'https://github.com/paolo-rossi/delphi-jose-jwt' + sLineBreak + sLineBreak +
+    'Neon: JSON Serialization Library' + sLineBreak +
+    'https://github.com/paolo-rossi/delphi-neon' + sLineBreak + sLineBreak +
+    'OpenAPI for Delphi Library' + sLineBreak +
+    'https://github.com/paolo-rossi/OpenAPI-Delphi' + sLineBreak + sLineBreak +
+    'GraphQL for Delphi' + sLineBreak +
+    'https://github.com/lminuti/graphql' + sLineBreak + sLineBreak +
+    'Indy' + sLineBreak +
+    'https://github.com/IndySockets/Indy'
+  ;
 
 implementation
 
 uses
-  Windows, ToolsAPI, WiRL.Wizards;
+  Winapi.Windows, ToolsAPI, WiRL.Wizards;
 
 var
   AboutBoxServices: IOTAAboutBoxServices = nil;
@@ -42,18 +61,17 @@ var
 
 procedure RegisterAboutBox;
 var
-  ProductImage: HBITMAP;
+  LProductImage: HBITMAP;
 begin
   if AboutBoxIndex = -1 then
   begin
     Supports(BorlandIDEServices,IOTAAboutBoxServices, AboutBoxServices);
     if not Assigned(AboutBoxServices) then
       Exit;
-    ProductImage := LoadBitmap(FindResourceHInstance(HInstance), 'WiRLSplash');
-    if ProductImage = 0 then
+    LProductImage := LoadBitmap(FindResourceHInstance(HInstance), 'WiRLSplash');
+    if LProductImage = 0 then
       Exit;
-    AboutBoxIndex := AboutBoxServices.AddPluginInfo(PackageName, AboutDescription,
-      ProductImage, False);
+    AboutBoxIndex := AboutBoxServices.AddPluginInfo(WIRL_CAPTION, Format(WIRL_DESCRIPTION, [CurrentYear]), LProductImage, False);
   end;
 end;
 
@@ -69,14 +87,14 @@ end;
 
 procedure RegisterSplashScreen;
 var
-  ProductImage: HBITMAP;
+  LProductImage: HBITMAP;
 begin
   if Assigned(SplashScreenServices) then
   begin
-    ProductImage := LoadBitmap(FindResourceHInstance(HInstance), 'WiRLSplash');
-    if ProductImage <> 0 then
+    LProductImage := LoadBitmap(FindResourceHInstance(HInstance), 'WiRLSplash');
+    if LProductImage <> 0 then
     begin
-      SplashScreenServices.AddPluginBitmap(PackageName, ProductImage, False, License);
+      SplashScreenServices.AddPluginBitmap(WIRL_CAPTION, LProductImage, False, WIRL_LICENSE);
     end;
   end;
 end;
@@ -84,13 +102,16 @@ end;
 
 procedure Register;
 begin
-  RegisterComponents('WiRL Server', [TWiRLEngine]);
-  RegisterComponents('WiRL Server', [TWiRLhttpEngine]);
   RegisterComponents('WiRL Server', [TWiRLServer]);
+  RegisterComponents('WiRL Server', [TWiRLRESTEngine]);
+  RegisterComponents('WiRL Server', [TWiRLHTTPEngine]);
+  RegisterComponents('WiRL Server', [TWiRLWebServerEngine]);
   RegisterComponents('WiRL Server', [TWiRLFileSystemEngine]);
   RegisterComponents('WiRL Server', [TWiRLMBWDefaultProvider]);
+  RegisterComponents('WiRL Server', [TWiRLDispatcher]);
 
   RegisterPackageWizard(TWiRLServeProjectWizard.Create);
+  RegisterPackageWizard(TWiRLResourceModuleWizard.Create);
 
   RegisterSplashScreen;
   RegisterAboutBox;

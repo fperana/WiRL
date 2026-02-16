@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2021 WiRL Team                                      }
+{       Copyright (c) 2015-2025 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -17,7 +17,7 @@ uses
   System.SysUtils, System.Classes, System.Rtti, System.TypInfo,
   System.Generics.Collections,
 
-  WiRL.Configuration.Core,
+  WiRL.http.Filters,
   WiRL.Core.Declarations,
   WiRL.Core.Classes,
   WiRL.Core.MessageBodyReader,
@@ -26,8 +26,8 @@ uses
   WiRL.Core.Context,
   WiRL.Core.Metadata,
   WiRL.Core.Auth.Context,
-  WiRL.http.Filters,
-  WiRL.Core.Injection;
+  WiRL.Core.Injection,
+  WiRL.Configuration.Core;
 
 type
   TWiRLApplication = class(TComponent, IWiRLApplication)
@@ -141,15 +141,16 @@ implementation
 
 uses
   System.StrUtils,
-  WiRL.Configuration.Converter,
-  WiRL.Core.Exceptions,
-  WiRL.Core.Utils,
-  WiRL.Rtti.Utils,
+
   WiRL.http.URL,
   WiRL.http.Accept.MediaType,
+  WiRL.Configuration.Converter,
+  WiRL.Core.Exceptions,
   WiRL.Core.Attributes,
-  WiRL.Core.Engine,
-  WiRL.Core.Converter;
+  WiRL.Core.Converter,
+  WiRL.Core.Utils,
+  WiRL.Engine.REST,
+  WiRL.Rtti.Utils;
 
 function ExtractToken(const AString: string; const ATokenIndex: Integer; const ADelimiter: Char = '/'): string;
 var
@@ -170,7 +171,7 @@ end;
 function TWiRLApplication.AddApplication(
   const ABasePath: string): IWiRLApplication;
 begin
-  Result := (FEngine as TWiRLEngine).AddApplication(ABasePath);
+  Result := (FEngine as TWiRLRESTEngine).AddApplication(ABasePath);
 end;
 
 function TWiRLApplication.AddConfiguration(
@@ -254,20 +255,13 @@ function TWiRLApplication.AddResource(const AResource: string): Boolean;
   begin
     LResult := False;
     LClass := AInfo.TypeTClass;
-    TRttiHelper.HasAttribute<PathAttribute>(RttiContext.GetType(LClass),
+    TRttiHelper.ForEachAttribute<PathAttribute>(RttiContext.GetType(LClass),
       procedure (AAttribute: PathAttribute)
-      var
-        LURL: TWiRLURL;
       begin
-        LURL := TWiRLURL.MockURL(AAttribute.Value);
-        try
-          if not FResourceRegistry.ContainsKey(LURL.PathTokens[0]) then
-          begin
-            FResourceRegistry.Add(LURL.PathTokens[0], AInfo.Clone);
-            LResult := True;
-          end;
-        finally
-          LURL.Free;
+        if not FResourceRegistry.ContainsKey(TWiRLURL.StripFirstPathDelimiter(AAttribute.Value)) then
+        begin
+          FResourceRegistry.Add(TWiRLURL.StripFirstPathDelimiter(AAttribute.Value), AInfo.Clone);
+          LResult := True;
         end;
       end
     );
@@ -351,10 +345,10 @@ begin
   if FEngine <> Value then
   begin
     if Assigned(FEngine) then
-      (FEngine as TWiRLEngine).RemoveApplication(Self);
+      (FEngine as TWiRLRESTEngine).RemoveApplication(Self);
     FEngine := Value;
     if Assigned(FEngine) then
-      (FEngine as TWiRLEngine).AddApplication(Self);
+      (FEngine as TWiRLRESTEngine).AddApplication(Self);
   end;
 end;
 
@@ -369,9 +363,13 @@ function TWiRLApplication.SetReaders(const AReaders: TArray<string>): IWiRLAppli
 var
   LReader: string;
 begin
+  if Length(AReaders) = 0 then
+    FreaderRegistry.Clear
+  else
+    for LReader in AReaders do
+      Self.AddReader(LReader);
+
   Result := Self;
-  for LReader in AReaders do
-    Self.AddReader(LReader);
 end;
 
 function TWiRLApplication.SetReaders(const AReaders: string): IWiRLApplication;
@@ -388,9 +386,13 @@ function TWiRLApplication.SetResources(const AResources: TArray<string>): IWiRLA
 var
   LResource: string;
 begin
+  if Length(AResources) = 0 then
+    FResourceRegistry.Clear
+  else
+    for LResource in AResources do
+      Self.AddResource(LResource);
+
   Result := Self;
-  for LResource in AResources do
-    Self.AddResource(LResource);
 end;
 
 function TWiRLApplication.SetFilters(const AFilters: string): IWiRLApplication;
@@ -402,25 +404,33 @@ function TWiRLApplication.SetFilters(const AFilters: TArray<string>): IWiRLAppli
 var
   LFilter: string;
 begin
+  if Length(AFilters) = 0 then
+    FFilterRegistry.Clear
+  else
+    for LFilter in AFilters do
+      Self.AddFilter(LFilter);
+
   Result := Self;
-  for LFilter in AFilters do
-    Self.AddFilter(LFilter);
 end;
 
 procedure TWiRLApplication.SetParentComponent(AParent: TComponent);
 begin
   inherited;
-  if AParent is TWiRLEngine then
-    Engine := AParent as TWiRLEngine;
+  if AParent is TWiRLRESTEngine then
+    Engine := AParent as TWiRLRESTEngine;
 end;
 
 function TWiRLApplication.SetWriters(const AWriters: TArray<string>): IWiRLApplication;
 var
   LWriter: string;
 begin
+  if Length(AWriters) = 0 then
+    FWriterRegistry.Clear
+  else
+    for LWriter in AWriters do
+      Self.AddWriter(LWriter);
+
   Result := Self;
-  for LWriter in AWriters do
-    Self.AddWriter(LWriter);
 end;
 
 function TWiRLApplication.SetWriters(const AWriters: string): IWiRLApplication;
@@ -566,7 +576,7 @@ end;
 
 function TWiRLApplication.GetEnginePath: string;
 begin
-  Result := (Engine as TWiRLEngine).BasePath;
+  Result := (Engine as TWiRLRESTEngine).BasePath;
 end;
 
 function TWiRLApplication.GetFormatSettingFor(ATypeInfo: PTypeInfo): string;
@@ -584,7 +594,7 @@ begin
   if not Assigned(FEngine) then
     Result := BasePath
   else
-    Result := TWiRLURL.CombinePath([(FEngine as TWiRLEngine).BasePath, BasePath]);
+    Result := TWiRLURL.CombinePath([(FEngine as TWiRLRESTEngine).BasePath, BasePath]);
 end;
 
 function TWiRLApplication.GetResourceCtor(const AResourceName: string): TWiRLConstructorProxy;

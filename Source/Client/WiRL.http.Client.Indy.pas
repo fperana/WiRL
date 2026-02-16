@@ -19,6 +19,8 @@ uses
   IdBaseComponent, IdComponent, IdTCPConnection, IdTCPClient, IdHTTP,
   IdHTTPHeaderInfo, IdStack, IdResourceStringsProtocols,
 
+  WiRL.Core.Context,
+
   WiRL.http.Client.Interfaces,
   WiRL.http.Accept.MediaType,
 
@@ -27,24 +29,35 @@ uses
   WiRL.http.Cookie;
 
 type
+  TWiRLIndyHttp = class(TIdHTTP)
+  public
+    // Add a Delete overload not supported by standard Indy HTTP client component
+    procedure Delete(AURL: string; ARequestContent, AResponseContent: TStream); overload;
+  end;
+
   TWiRLClientResponseIndy = class(TInterfacedObject, IWiRLResponse)
   private
     FIdHTTPResponse: TIdHTTPResponse;
     FHeaders: IWiRLHeaders;
     FMediaType: TMediaType;
+    FOwnContentStream: Boolean;
+    FContext: TWiRLContextBase;
 
     { IWiRLResponse }
-    function GetHeaderValue(const AName: string): string;
     function GetStatusCode: Integer;
     function GetStatusText: string;
+    function GetStatus: TWiRLResponseStatus;
     function GetContentType: string;
-    function GetContent: string;
+    function GetContentText: string;
     function GetContentStream: TStream;
+    function GetContent: TWiRLContent;
     function GetHeaders: IWiRLHeaders;
     function GetContentMediaType: TMediaType;
     function GetRawContent: TBytes;
     procedure SetStatusCode(AValue: Integer);
     procedure SetStatusText(const AValue: string);
+    procedure SetOwnContentStream(const AValue: Boolean);
+    procedure SetContext(AContext: TWiRLContextBase);
   public
     constructor Create(AIdHTTPResponse: TIdHTTPResponse);
     destructor Destroy; override;
@@ -52,7 +65,7 @@ type
 
   TWiRLClientIndy = class(TInterfacedObject, IWiRLClient)
   private
-    FHttpClient: TIdHTTP;
+    FHttpClient: TWiRLIndyHttp;
     FProxyParams: TWiRLProxyConnectionInfo;
     // Setters and getters
     function GetConnectTimeout: Integer;
@@ -74,7 +87,7 @@ type
     function Get(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Post(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Put(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
-    function Delete(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
+    function Delete(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Options(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Head(const AURL: string; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Patch(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
@@ -92,16 +105,16 @@ const
 
 constructor TWiRLClientIndy.Create;
 begin
-  FHttpClient := TIdHTTP.Create(nil);
+  FHttpClient := TWiRLIndyHttp.Create(nil);
   FHttpClient.MaxAuthRetries := -1;
   FHttpClient.HTTPOptions := FHttpClient.HTTPOptions + [hoNoProtocolErrorException, hoWantProtocolErrorContent];
 end;
 
-function TWiRLClientIndy.Delete(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
+function TWiRLClientIndy.Delete(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
 begin
   BuildRequestObject(AHeaders);
   try
-    FHttpClient.Delete(AURL, AResponseContent);
+    FHttpClient.Delete(AURL, ARequestContent, AResponseContent);
   except
     on E: EIdSocketError do
       Exception.RaiseOuterException(EWiRLSocketException.Create(E.Message));
@@ -277,17 +290,28 @@ constructor TWiRLClientResponseIndy.Create(AIdHTTPResponse: TIdHTTPResponse);
 begin
   inherited Create;
   FIdHTTPResponse := AIdHTTPResponse;
+  FOwnContentStream := False;
 end;
 
 destructor TWiRLClientResponseIndy.Destroy;
 begin
   FMediaType.Free;
+  if FOwnContentStream then
+  begin
+    FIdHTTPResponse.ContentStream.Free;
+    FIdHTTPResponse.ContentStream := nil;
+  end;
   inherited;
 end;
 
-function TWiRLClientResponseIndy.GetContent: string;
+function TWiRLClientResponseIndy.GetContentText: string;
 begin
   Result := EncodingFromCharSet(GetContentMediaType.Charset).GetString(GetRawContent);
+end;
+
+function TWiRLClientResponseIndy.GetContent: TWiRLContent;
+begin
+  Result := TWiRLContent.Create(Self, FContext);
 end;
 
 function TWiRLClientResponseIndy.GetContentMediaType: TMediaType;
@@ -304,30 +328,32 @@ end;
 
 function TWiRLClientResponseIndy.GetContentType: string;
 begin
-  Result := GetHeaderValue('Content-Type');
+  Result := GetHeaders['Content-Type'];
 end;
 
 function TWiRLClientResponseIndy.GetHeaders: IWiRLHeaders;
 var
   LIndex: Integer;
   LName, LValue: string;
+  LConvertedHeaders: TStrings;
 begin
   if not Assigned(FHeaders) then
   begin
     FHeaders := TWiRLHeaders.Create;
-    for LIndex := 0 to FIdHTTPResponse.RawHeaders.Count - 1 do
-    begin
-      LName := FIdHTTPResponse.RawHeaders.Names[LIndex];
-      LValue := FIdHTTPResponse.RawHeaders.Values[LName];
-      FHeaders.AddHeader(TWiRLHeader.Create(LName, LValue));
+    LConvertedHeaders := TStringList.Create;
+    try
+      FIdHTTPResponse.RawHeaders.ConvertToStdValues(LConvertedHeaders);
+      for LIndex := 0 to FIdHTTPResponse.RawHeaders.Count - 1 do
+      begin
+        LName := LConvertedHeaders.Names[LIndex];
+        LValue := LConvertedHeaders.ValueFromIndex[LIndex];
+        FHeaders.AddHeader(TWiRLHeader.Create(LName, LValue));
+      end;
+    finally
+      LConvertedHeaders.Free;
     end;
   end;
   Result := FHeaders;
-end;
-
-function TWiRLClientResponseIndy.GetHeaderValue(const AName: string): string;
-begin
-  Result := FIdHTTPResponse.RawHeaders.Values[AName];
 end;
 
 function TWiRLClientResponseIndy.GetRawContent: TBytes;
@@ -340,6 +366,11 @@ begin
   end;
 end;
 
+function TWiRLClientResponseIndy.GetStatus: TWiRLResponseStatus;
+begin
+  Result := TWiRLResponseStatus.FromStatusCode(GetStatusCode);
+end;
+
 function TWiRLClientResponseIndy.GetStatusCode: Integer;
 begin
   Result := FIdHTTPResponse.ResponseCode;
@@ -350,6 +381,16 @@ begin
   Result := FIdHTTPResponse.ResponseText;
 end;
 
+procedure TWiRLClientResponseIndy.SetContext(AContext: TWiRLContextBase);
+begin
+  FContext := AContext;
+end;
+
+procedure TWiRLClientResponseIndy.SetOwnContentStream(const AValue: Boolean);
+begin
+  FOwnContentStream := AValue;
+end;
+
 procedure TWiRLClientResponseIndy.SetStatusCode(AValue: Integer);
 begin
   FIdHTTPResponse.ResponseCode := AValue;
@@ -358,6 +399,14 @@ end;
 procedure TWiRLClientResponseIndy.SetStatusText(const AValue: string);
 begin
   FIdHTTPResponse.ResponseText := AValue;
+end;
+
+{ TWiRLIndyHttp }
+
+procedure TWiRLIndyHttp.Delete(AURL: string; ARequestContent,
+  AResponseContent: TStream);
+begin
+  DoRequest(Id_HTTPMethodDelete, AURL, ARequestContent, AResponseContent, []);
 end;
 
 initialization

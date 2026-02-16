@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2021 WiRL Team                                      }
+{       Copyright (c) 2015-2025 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -16,25 +16,31 @@ uses
 
   WiRL.Core.Declarations,
   WiRL.Core.Registry,
+  WiRL.Core.Exceptions,
   WiRL.Configuration.Core,
   WiRL.Core.Auth.Context,
+  Neon.Core.Persistence,
   OpenAPI.Model.Classes;
 
 {$SCOPEDENUMS ON}
 
 type
+  TOpenAPIDocCallback = reference to procedure (ADocument: TOpenAPIDocument);
+
   IWiRLConfigurationOpenAPI = interface(IWiRLConfiguration)
   ['{BB768622-918C-4E54-A9B5-4BF6646B8F7A}']
-
     function SetOpenAPIResource(AClass: TClass): IWiRLConfigurationOpenAPI;
     function SetXMLDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
+    function SetOASDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
     function SetGUIDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
     function SetAPILogo(const AName: string): IWiRLConfigurationOpenAPI;
     function SetAPIServer(const AHost, ADescription: string): IWiRLConfigurationOpenAPI;
     function SetAPIDocument(ADocument: TOpenAPIDocument): IWiRLConfigurationOpenAPI;
+    function SetAPIDocumentCallback(ACallback: TOpenAPIDocCallback): IWiRLConfigurationOpenAPI;
+    function SetNeonConfiguration(AConfig: INeonConfiguration): IWiRLConfigurationOpenAPI;
   end;
 
-  TConfigurator = reference to procedure(AOpenAPIConf: IWiRLConfigurationOpenAPI);
+  TConfigurator = reference to procedure (AOpenAPIConf: IWiRLConfigurationOpenAPI);
 
   TServerPair = TPair<string, string>;
 
@@ -42,11 +48,14 @@ type
   TWiRLConfigurationOpenAPI = class sealed(TWiRLConfiguration, IWiRLConfigurationOpenAPI)
   private
     FClass: TClass;
+    FNeonConfig: INeonConfiguration;
     FDocument: TOpenAPIDocument;
+    FCallback: TOpenAPIDocCallback;
     FAPILogo: string;
     FServers: TArray<TOpenAPIServer>;
     FFolderXMLDoc: string;
     FFolderGUIDoc: string;
+    FFolderOASDoc: string;
   public
     class function Default: IWiRLConfigurationOpenAPI; static;
   public
@@ -57,15 +66,22 @@ type
 
     function SetOpenAPIResource(AClass: TClass): IWiRLConfigurationOpenAPI;
     function SetXMLDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
+    function SetOASDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
     function SetGUIDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
     function SetAPILogo(const ALogo: string): IWiRLConfigurationOpenAPI;
     function SetAPIServer(const AHost, ADescription: string): IWiRLConfigurationOpenAPI;
     function SetAPIDocument(ADocument: TOpenAPIDocument): IWiRLConfigurationOpenAPI;
+    function SetAPIDocumentCallback(ACallback: TOpenAPIDocCallback): IWiRLConfigurationOpenAPI;
+    function SetNeonConfiguration(AConfig: INeonConfiguration): IWiRLConfigurationOpenAPI;
+
+    property NeonConfig: INeonConfiguration read FNeonConfig;
   published
     property APILogo: string read FAPILogo write FAPILogo;
     property FolderXMLDoc: string read FFolderXMLDoc write FFolderXMLDoc;
+    property FolderOASDoc: string read FFolderOASDoc write FFolderOASDoc;
     property FolderGUIDoc: string read FFolderGUIDoc write FFolderGUIDoc;
     property Document: TOpenAPIDocument read FDocument write FDocument;
+    property Callback: TOpenAPIDocCallback read FCallback write FCallback;
   end;
 
 implementation
@@ -103,8 +119,7 @@ end;
 class function TWiRLConfigurationOpenAPI.Default: IWiRLConfigurationOpenAPI;
 begin
   Result := TWiRLConfigurationOpenAPI.Create
-    .SetXMLDocFolder('.')
-  ;
+    .SetXMLDocFolder('.');
 end;
 
 destructor TWiRLConfigurationOpenAPI.Destroy;
@@ -123,6 +138,12 @@ function TWiRLConfigurationOpenAPI.SetAPIDocument(ADocument: TOpenAPIDocument): 
 begin
   FDocument.Free;
   FDocument := ADocument;
+  Result := Self;
+end;
+
+function TWiRLConfigurationOpenAPI.SetAPIDocumentCallback(ACallback: TOpenAPIDocCallback): IWiRLConfigurationOpenAPI;
+begin
+  FCallback := ACallback;
   Result := Self;
 end;
 
@@ -146,6 +167,18 @@ end;
 function TWiRLConfigurationOpenAPI.SetGUIDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
 begin
   FFolderGUIDoc := AFolder;
+  Result := Self;
+end;
+
+function TWiRLConfigurationOpenAPI.SetOASDocFolder(const AFolder: string): IWiRLConfigurationOpenAPI;
+begin
+  FFolderOASDoc := AFolder;
+  Result := Self;
+end;
+
+function TWiRLConfigurationOpenAPI.SetNeonConfiguration(AConfig: INeonConfiguration): IWiRLConfigurationOpenAPI;
+begin
+  FNeonConfig := AConfig;
   Result := Self;
 end;
 

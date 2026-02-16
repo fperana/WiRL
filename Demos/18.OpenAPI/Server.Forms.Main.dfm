@@ -22,7 +22,7 @@ object MainForm: TMainForm
     Align = alTop
     BevelOuter = bvNone
     TabOrder = 0
-    ExplicitWidth = 550
+    ExplicitWidth = 548
     DesignSize = (
       554
       73)
@@ -65,42 +65,12 @@ object MainForm: TMainForm
       Action = actShowDocumentation
       Anchors = [akTop, akRight]
       TabOrder = 3
-      ExplicitLeft = 389
+      ExplicitLeft = 387
     end
   end
-  object Button1: TButton
-    Left = 8
-    Top = 96
-    Width = 75
-    Height = 25
-    Caption = 'Button1'
-    TabOrder = 1
-    Visible = False
-    OnClick = Button1Click
-  end
-  object Memo1: TMemo
-    Left = 104
-    Top = 98
-    Width = 442
-    Height = 183
-    Lines.Strings = (
-      'Memo1')
-    TabOrder = 2
-    Visible = False
-  end
-  object Button2: TButton
-    Left = 8
-    Top = 136
-    Width = 75
-    Height = 25
-    Caption = 'Button2'
-    TabOrder = 3
-    Visible = False
-    OnClick = Button2Click
-  end
   object MainActionList: TActionList
-    Left = 104
-    Top = 96
+    Left = 64
+    Top = 104
     object actStartServer: TAction
       Caption = 'Start Server'
       OnExecute = actStartServerExecute
@@ -116,9 +86,5 @@ object MainForm: TMainForm
       OnExecute = actShowDocumentationExecute
       OnUpdate = actShowDocumentationUpdate
     end
-  end
-  object XMLDocument1: TXMLDocument
-    Left = 272
-    Top = 152
   end
 end

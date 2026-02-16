@@ -18,10 +18,13 @@ uses
   System.Types,
   WiRL.Console.Base,
   WiRL.Console.Factory,
-  WiRL.Core.Engine,
+  WiRL.Engine.REST,
+  WiRL.Engine.WebServer,
   WiRL.http.Server,
   WiRL.http.Server.Indy,
-  Server.Resources in 'Server.Resources.pas';
+  Server.Resources.HelloWorld in 'Server.Resources.HelloWorld.pas',
+  Server.Resources.Database in 'Server.Resources.Database.pas',
+  Server.Resources.Params in 'Server.Resources.Params.pas';
 
 var
   WiRLConsole: TWiRLConsoleBase;
@@ -34,15 +37,23 @@ begin
         AServer
           .SetPort(8080)
           .SetThreadPoolSize(10)
-          .AddEngine<TWiRLEngine>('/rest')
+          .AddEngine<TWiRLRESTEngine>('/rest')
           .SetEngineName('WiRL HelloWorld')
 
           // Adds and configures an application
           .AddApplication('/app')
+            // You can add any single resource (FQCN of the class) or use '*'
+            // to add all registered resources
             .SetResources([
-              'Server.Resources.THelloWorldResource',
-              'Server.Resources.TEntityResource'])
+              'Server.Resources.HelloWorld.THelloWorldResource',
+              'Server.Resources.HelloWorld.TEntityResource',
+              'Server.Resources.Database.TDatabaseResource',
+              'Server.Resources.Params.TParametersResource'])
         ;
+
+        AServer.AddEngine<TWiRLWebServerEngine>('/')
+          .SetEngineName('FileSystemEngine')
+          .SetRootFolder('..\..\www');
       end
     );
     try

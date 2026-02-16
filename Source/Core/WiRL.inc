@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2021 WiRL Team                                      }
+{       Copyright (c) 2015-2023 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -37,9 +37,20 @@
 {$IF CompilerVersion >= 33} // Delphi 10.3 Rio
   {$DEFINE HAS_NEW_PIDS}
   {$DEFINE HAS_NEW_JSON}
+  {$DEFINE HAS_MANAGED_RECORD}
+{$ENDIF}
+
+{$IF CompilerVersion >= 34} // Delphi 10.4 Sydney
+  {$DEFINE HAS_FORM_DATA_FIELD_WITH_MEDIA_TYPE}
 {$ENDIF}
 
 {$IF CompilerVersion >= 35} // Delphi 11.0 Alexandria
   {$DEFINE HAS_NEW_ANDROID_PID}
+  {$DEFINE HAS_NO_REF_COUNT}      // TNoRefCountObject class
+  {$UNDEF CUSTOM_ATTRIBUTE_BUG}
+{$ENDIF}
+
+{$IF CompilerVersion >= 36} // Delphi 12.0 Athens
+  {$DEFINE HAS_ARRAY_TO_STRING}
 {$ENDIF}
 

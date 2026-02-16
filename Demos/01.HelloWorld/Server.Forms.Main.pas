@@ -19,7 +19,8 @@ uses
   WiRL.Configuration.Neon,
   WiRL.Configuration.Converter,
   WiRL.Core.Converter,
-  WiRL.Core.Engine,
+  WiRL.Engine.REST,
+  WiRL.Engine.WebServer,
   WiRL.http.Server,
   WiRL.http.Server.Indy;
 
@@ -33,12 +34,14 @@ type
     StopServerAction: TAction;
     PortNumberEdit: TEdit;
     Label1: TLabel;
+    ButtonOpenBrowser: TButton;
     procedure StartServerActionExecute(Sender: TObject);
     procedure StartServerActionUpdate(Sender: TObject);
     procedure StopServerActionExecute(Sender: TObject);
     procedure StopServerActionUpdate(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
+    procedure ButtonOpenBrowserClick(Sender: TObject);
   private
     RESTServer: TWiRLServer;
   public
@@ -50,7 +53,19 @@ var
 
 implementation
 
+uses
+  WinApi.Windows, Winapi.ShellApi;
+
 {$R *.dfm}
+
+procedure TMainForm.ButtonOpenBrowserClick(Sender: TObject);
+var
+  LURL: string;
+begin
+  StartServerAction.Execute;
+  LURL := Format('http://localhost:%s/', [PortNumberEdit.Text]);
+  ShellExecute(0, nil, PChar(LURL), nil, nil, SW_SHOWNOACTIVATE);
+end;
 
 procedure TMainForm.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
@@ -61,7 +76,7 @@ procedure TMainForm.FormCreate(Sender: TObject);
 begin
   RESTServer := TWiRLServer.Create(Self);
 
-  RESTServer.AddEngine<TWiRLEngine>('/rest')
+  RESTServer.AddEngine<TWiRLRESTEngine>('/rest')
     .SetEngineName('RESTEngine')
     .AddApplication('/app')
       .SetResources('*')
@@ -69,12 +84,16 @@ begin
 
       .Plugin.Configure<IWiRLFormatSetting>
         .AddFormat(TypeInfo(TDateTime), TWiRLFormatSetting.ISODATE_UTC)
-        .BackToApp
+        .ApplyConfig
 
       .Plugin.Configure<IWiRLConfigurationNeon>
         .SetUseUTCDate(True)
         .SetVisibility([mvPublic, mvPublished])
         .SetMemberCase(TNeonCase.PascalCase);
+
+  RESTServer.AddEngine<TWiRLWebServerEngine>('/')
+    .SetEngineName('FileSystemEngine')
+    .SetRootFolder('..\..\www');
 
   StartServerAction.Execute;
 end;

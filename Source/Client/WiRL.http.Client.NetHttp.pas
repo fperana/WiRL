@@ -9,15 +9,17 @@
 {******************************************************************************}
 unit WiRL.http.Client.NetHttp;
 
-{$I ..\Core\WiRL.inc}
+{.$I ..\Core\WiRL.inc}
 
 interface
 
 uses
-  System.SysUtils, System.Classes,
+  System.SysUtils, System.Classes, System.DateUtils,
 
   System.Net.HttpClient,
   System.Net.URLClient,
+
+  WiRL.Core.Context,
 
   WiRL.http.Client.Interfaces,
   WiRL.http.Core,
@@ -33,19 +35,25 @@ type
     FResponse: IHTTPResponse;
     FMediaType: TMediaType;
     FHeaders: IWiRLHeaders;
+    FOwnContentStream: Boolean;
+    FContext: TWiRLContextBase;
+    function GetServerCookie(ACookie: TCookie): string;
 
     { IWiRLResponse }
-    function GetHeaderValue(const AName: string): string;
     function GetStatusCode: Integer;
     function GetStatusText: string;
+    function GetStatus: TWiRLResponseStatus;
     function GetContentType: string;
-    function GetContent: string;
+    function GetContent: TWiRLContent;
+    function GetContentText: string;
     function GetContentStream: TStream;
     function GetHeaders: IWiRLHeaders;
     function GetContentMediaType: TMediaType;
     function GetRawContent: TBytes;
     procedure SetStatusCode(AValue: Integer);
     procedure SetStatusText(const AValue: string);
+    procedure SetOwnContentStream(const AValue: Boolean);
+    procedure SetContext(AContext: TWiRLContextBase);
   public
     constructor Create(AResponse: IHTTPResponse);
     destructor Destroy; override;
@@ -55,6 +63,7 @@ type
   private
     FHttpClient: THTTPClient;
     FProxyParams: TWiRLProxyConnectionInfo;
+    procedure InitHttpClient;
     // Setters and getters
     function GetConnectTimeout: Integer;
     procedure SetConnectTimeout(Value: Integer);
@@ -70,7 +79,7 @@ type
     function Get(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Post(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Put(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
-    function Delete(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
+    function Delete(const AURL: string; ARequestStream, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Options(const AURL: string; AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Head(const AURL: string; AHeaders: IWiRLHeaders): IWiRLResponse;
     function Patch(const AURL: string; ARequestContent, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
@@ -98,12 +107,15 @@ begin
 end;
 
 function TWiRLClientNetHttp.Delete(const AURL: string;
-  AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
+  ARequestStream, AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
-    LHTTPResponse := FHttpClient.Delete(AURL, AResponseContent, GetRequestHeaders(AHeaders));
+    LHTTPResponse := FHttpClient.Delete(AURL,
+      {$if compilerversion > 35}ARequestStream,{$endif}
+      AResponseContent, GetRequestHeaders(AHeaders));
   except
     on E: ENetHTTPException do
       Exception.RaiseOuterException(EWiRLSocketException.Create(E.Message));
@@ -121,6 +133,7 @@ function TWiRLClientNetHttp.Get(const AURL: string; AResponseContent: TStream; A
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
     LHTTPResponse := FHttpClient.Get(AURL, AResponseContent, GetRequestHeaders(AHeaders));
   except
@@ -172,6 +185,7 @@ function TWiRLClientNetHttp.Head(const AURL: string; AHeaders: IWiRLHeaders): IW
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
     LHTTPResponse := FHttpClient.Head(AURL, GetRequestHeaders(AHeaders));
   except
@@ -181,11 +195,25 @@ begin
   Result := TWiRLClientResponseNetHttp.Create(LHTTPResponse);
 end;
 
+procedure TWiRLClientNetHttp.InitHttpClient;
+begin
+  if (FProxyParams.ProxyServer <> '') and (FProxyParams.ProxyPort > 0) then
+  begin
+    FHttpClient.ProxySettings := TProxySettings.Create(
+      FProxyParams.ProxyServer,
+      FProxyParams.ProxyPort,
+      FProxyParams.ProxyUsername,
+      FProxyParams.ProxyPassword
+    );
+  end;
+end;
+
 function TWiRLClientNetHttp.Options(const AURL: string;
   AResponseContent: TStream; AHeaders: IWiRLHeaders): IWiRLResponse;
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
     LHTTPResponse := FHttpClient.Options(AURL, AResponseContent, GetRequestHeaders(AHeaders));
   except
@@ -200,6 +228,7 @@ function TWiRLClientNetHttp.Patch(const AURL: string; ARequestContent,
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
     ARequestContent.Position := 0;
     LHTTPResponse := FHttpClient.Patch(AURL, ARequestContent, AResponseContent, GetRequestHeaders(AHeaders));
@@ -215,6 +244,7 @@ function TWiRLClientNetHttp.Post(const AURL: string; ARequestContent,
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
     ARequestContent.Position := 0;
     LHTTPResponse := FHttpClient.Post(AURL, ARequestContent, AResponseContent, GetRequestHeaders(AHeaders));
@@ -230,6 +260,7 @@ function TWiRLClientNetHttp.Put(const AURL: string; ARequestContent,
 var
   LHTTPResponse: IHTTPResponse;
 begin
+  InitHttpClient;
   try
     ARequestContent.Position := 0;
     LHTTPResponse := FHttpClient.Put(AURL, ARequestContent, AResponseContent, GetRequestHeaders(AHeaders));
@@ -266,17 +297,27 @@ constructor TWiRLClientResponseNetHttp.Create(AResponse: IHTTPResponse);
 begin
   inherited Create;
   FResponse := AResponse;
+  FOwnContentStream := False;
 end;
 
 destructor TWiRLClientResponseNetHttp.Destroy;
 begin
   FMediaType.Free;
+  if FOwnContentStream then
+  begin
+    FResponse.ContentStream.Free;
+  end;
   inherited;
 end;
 
-function TWiRLClientResponseNetHttp.GetContent: string;
+function TWiRLClientResponseNetHttp.GetContentText: string;
 begin
   Result := EncodingFromCharSet(GetContentMediaType.Charset).GetString(GetRawContent);
+end;
+
+function TWiRLClientResponseNetHttp.GetContent: TWiRLContent;
+begin
+  Result := TWiRLContent.Create(Self, FContext);
 end;
 
 function TWiRLClientResponseNetHttp.GetContentMediaType: TMediaType;
@@ -293,12 +334,13 @@ end;
 
 function TWiRLClientResponseNetHttp.GetContentType: string;
 begin
-  Result := GetHeaderValue('Content-Type');
+  Result := GetHeaders['Content-Type'];
 end;
 
 function TWiRLClientResponseNetHttp.GetHeaders: IWiRLHeaders;
 var
   LHeader: TNameValuePair;
+  LCookie: TCookie;
 begin
   if not Assigned(FHeaders) then
   begin
@@ -307,13 +349,12 @@ begin
     begin
       FHeaders.AddHeader(TWiRLHeader.Create(LHeader.Name, LHeader.Value));
     end;
+    for LCookie in FResponse.Cookies do
+    begin
+      FHeaders.AddHeader(TWiRLHeader.Create('Set-Cookie', GetServerCookie(LCookie)));
+    end;
   end;
   Result := FHeaders;
-end;
-
-function TWiRLClientResponseNetHttp.GetHeaderValue(const AName: string): string;
-begin
-  Result := GetHeaders.Values[AName];
 end;
 
 function TWiRLClientResponseNetHttp.GetRawContent: TBytes;
@@ -324,6 +365,47 @@ begin
     SetLength(Result, GetContentStream.Size);
     GetContentStream.ReadBuffer(Result[0], GetContentStream.Size);
   end;
+end;
+
+function TWiRLClientResponseNetHttp.GetServerCookie(ACookie: TCookie): string;
+var
+  LDomain: string;
+  LDate: TDateTime;
+  LYear, LMonth, LDay: Word;
+begin
+  Result := ToString;
+  if ACookie.Domain <> '' then
+  begin
+    LDomain := ACookie.Domain;
+    if LDomain.Chars[0] = '.' then
+      LDomain := LDomain.Substring(1);
+    Result := Result + ';Domain=' + LDomain;
+  end;
+  if ACookie.Path <> '' then
+    Result := Result + ';Path=' + ACookie.Path;
+  if ACookie.Expires <> 0.0 then
+  begin
+    LDate := ACookie.Expires;
+    if LDate <= 1 then
+      LDate := EncodeDateTime(1970, 1, 1, 0, 0, 0, 0)
+    else
+    begin
+      DecodeDate(LDate, LYear, LMonth, LDay);
+      if not ((LYear = 9999) and (LMonth = 12) and (LDay = 31)) then
+        LDate := TTimeZone.Local.ToUniversalTime(LDate);
+    end;
+    Result := Result + ';Expires=' +
+      FormatDateTime('ddd, dd mmm yyyy hh:nn:ss', LDate, TFormatSettings.Invariant) + ' GMT';
+  end;
+  if ACookie.HttpOnly then
+    Result := Result + ';HttpOnly';
+  if ACookie.Secure then
+    Result := Result + ';Secure';
+end;
+
+function TWiRLClientResponseNetHttp.GetStatus: TWiRLResponseStatus;
+begin
+  Result := TWiRLResponseStatus.FromStatusCode(GetStatusCode);
 end;
 
 function TWiRLClientResponseNetHttp.GetStatusCode: Integer;
@@ -340,6 +422,16 @@ begin
     Result := FStatusText
   else
     Result := FResponse.StatusText;
+end;
+
+procedure TWiRLClientResponseNetHttp.SetContext(AContext: TWiRLContextBase);
+begin
+  FContext := AContext;
+end;
+
+procedure TWiRLClientResponseNetHttp.SetOwnContentStream(const AValue: Boolean);
+begin
+  FOwnContentStream := AValue;
 end;
 
 procedure TWiRLClientResponseNetHttp.SetStatusCode(AValue: Integer);

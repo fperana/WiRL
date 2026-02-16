@@ -11,8 +11,9 @@ uses
   WiRL.Core.Attributes,
   WiRL.Core.Metadata,
   WiRL.Core.Registry,
-  WiRL.Core.Engine,
   WiRL.Core.Context,
+  WiRL.Core.Context.Server,
+  WiRL.Engine.REST,
   WiRL.http.Server,
   WiRL.http.Response,
   WiRL.http.Request,
@@ -26,6 +27,7 @@ type
   TTestGarbageCollector = class(TObject)
   private
     FServer: TWiRLServer;
+    FContext: TWiRLContext;
     FRequest: TWiRLTestRequest;
     FResponse: TWiRLTestResponse;
   public
@@ -43,7 +45,7 @@ type
   TPerson = class
   private
     FName: string;
-  published
+  public
     property Name: string read FName write FName;
   end;
 
@@ -66,7 +68,7 @@ begin
   FServer := TWiRLServer.Create(nil);
 
   // Engine configuration
-  FServer.AddEngine<TWiRLEngine>('/rest')
+  FServer.AddEngine<TWiRLRESTEngine>('/rest')
     .SetEngineName('WiRL Test Demo')
 
     .AddApplication('/app')
@@ -78,13 +80,19 @@ begin
   if not FServer.Active then
     FServer.Active := True;
 
+  FContext := TWiRLContext.Create;
+
   FRequest := TWiRLTestRequest.Create;
+  FContext.AddContainer(FRequest);
+
   FResponse := TWiRLTestResponse.Create;
+  FContext.AddContainer(FResponse);
 end;
 
 procedure TTestGarbageCollector.TearDown;
 begin
   FServer.Free;
+  FContext.Free;
   FRequest.Free;
   FResponse.Free;
 end;
@@ -94,7 +102,7 @@ begin
   FRequest.Method := 'GET';
   FRequest.Url := 'http://localhost:1234/rest/app/gc';
   FRequest.Accept := TMediaType.APPLICATION_JSON;
-  FServer.HandleRequest(FRequest, FResponse);
+  FServer.HandleRequest(FContext, FRequest, FResponse);
 
   Assert.AreEqual(200, FResponse.StatusCode);
   Assert.Pass();
@@ -105,7 +113,7 @@ begin
   FRequest.Method := 'GET';
   FRequest.Url := 'http://localhost:1234/rest/app/gc';
   FRequest.Accept := TMediaType.APPLICATION_JSON;
-  FServer.HandleRequest(FRequest, FResponse);
+  FServer.HandleRequest(FContext, FRequest, FResponse);
 
   Assert.AreEqual(200, FResponse.StatusCode);
   Assert.Pass();
@@ -118,7 +126,7 @@ var
   LTempObj: TObject;
 begin
   LTempObj := TObject.Create;
-  //GC.AddGarbage(LTempObj);
+  GC.AddGarbage(LTempObj);
   Result := TPerson.Create;
   Result.Name := AName;
 end;

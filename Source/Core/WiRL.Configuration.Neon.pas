@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2019 WiRL Team                                      }
+{       Copyright (c) 2015-2025 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -37,6 +37,7 @@ type
   [Implements(IWiRLConfigurationNeon)]
   TWiRLConfigurationNeon = class(TWiRLConfiguration, IWiRLConfigurationNeon)
   private
+    FNeonConfiguration: INeonConfiguration;
     FPrettyPrint: Boolean;
     FIgnoreFieldPrefix: Boolean;
     FMemberCustomCase: TCaseFunc;
@@ -49,6 +50,7 @@ type
     constructor Create; override;
     destructor Destroy; override;
 
+    class function New: IWiRLConfigurationNeon; static;
     class function Default: IWiRLConfigurationNeon; static;
     class function Pretty: IWiRLConfigurationNeon; static;
     class function Snake: IWiRLConfigurationNeon; static;
@@ -68,6 +70,7 @@ type
     function GetSerializers: TNeonSerializerRegistry;
 
     function GetNeonConfig: INeonConfiguration;
+    function GetNewNeonConfig: INeonConfiguration;
  published
     property Members: TNeonMembersSet read FMembers write FMembers;
     property MemberCase: TNeonCase read FMemberCase write FMemberCase;
@@ -92,17 +95,19 @@ constructor TWiRLConfigurationNeon.Create;
 begin
   inherited;
   FSerializers := TNeonSerializerRegistry.Create;
-  SetMemberCase(TNeonCase.PascalCase);
+  SetMemberCase(TNeonCase.Unchanged);
   SetMembers([TNeonMembers.Standard]);
   SetIgnoreFieldPrefix(False);
   SetVisibility([mvPublic, mvPublished]);
   SetUseUTCDate(True);
   SetPrettyPrint(False);
+
 end;
 
 class function TWiRLConfigurationNeon.Default: IWiRLConfigurationNeon;
 begin
   Result := TWiRLConfigurationNeon.Create;
+  Result.SetMemberCase(TNeonCase.PascalCase);
 end;
 
 class function TWiRLConfigurationNeon.Pretty: IWiRLConfigurationNeon;
@@ -138,8 +143,32 @@ end;
 
 function TWiRLConfigurationNeon.GetNeonConfig: INeonConfiguration;
 begin
+  if not Assigned(FNeonConfiguration) then
+    FNeonConfiguration := GetNewNeonConfig;
+
+  Result := FNeonConfiguration;
+end;
+
+function TWiRLConfigurationNeon.GetNewNeonConfig: INeonConfiguration;
+begin
   Result := TNeonConfiguration.Default;
+
   Result.GetSerializers.Assign(FSerializers);
+  Result.Rules.ForClass<TCollection>.SetIgnoreMembers([
+    'ItemClass'
+  ]);
+  Result.Rules.ForClass<TCollectionItem>.SetIgnoreMembers([
+    'Collection'
+  ]);
+  Result.Rules.ForClass<Exception>.SetIgnoreMembers([
+    'BaseException',
+    'HelpContext',
+    'InnerException',
+    'StackTrace',
+    'StackInfo'
+  ]);
+
+  // Use custom settings (from the WiRL (app) configuration)
   Result
    .SetMembers(FMembers)
    .SetMemberCase(FMemberCase)
@@ -149,6 +178,7 @@ begin
    .SetUseUTCDate(FUseUTCDate)
    .SetPrettyPrint(FPrettyPrint)
    .GetSerializers
+     .RegisterSerializer(TJSONValueSerializer)
      .RegisterSerializer(TGUIDSerializer)
      .RegisterSerializer(TStreamSerializer)
      .RegisterSerializer(TDataSetSerializer)
@@ -158,6 +188,11 @@ end;
 function TWiRLConfigurationNeon.GetSerializers: TNeonSerializerRegistry;
 begin
   Result := FSerializers;
+end;
+
+class function TWiRLConfigurationNeon.New: IWiRLConfigurationNeon;
+begin
+  Result := TWiRLConfigurationNeon.Create;
 end;
 
 function TWiRLConfigurationNeon.RemoveSerializer(ASerializerClass: TCustomSerializerClass): IWiRLConfigurationNeon;

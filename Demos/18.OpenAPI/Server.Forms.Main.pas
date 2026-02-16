@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2021 WiRL Team                                      }
+{       Copyright (c) 2015-2025 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -14,16 +14,18 @@ interface
 uses
   System.SysUtils, System.Classes, Vcl.Controls, Vcl.Forms, Vcl.ActnList,
   Vcl.StdCtrls, Vcl.ExtCtrls, System.Actions, Winapi.Windows, Winapi.ShellAPI, System.JSON,
-  Xml.xmldom, Xml.XMLIntf, Xml.XMLDoc,
 
   WiRL.Configuration.Core,
   WiRL.Configuration.Neon,
   WiRL.Configuration.CORS,
   WiRL.Configuration.OpenAPI,
+  WiRL.Core.Exceptions,
   Neon.Core.Types,
+  Neon.Core.Persistence,
+  Neon.Core.Persistence.JSON.Schema,
   WiRL.Core.Application,
-  WiRL.Core.Engine,
-  WiRL.http.FileSystemEngine,
+  WiRL.Engine.REST,
+  WiRL.Engine.FileSystem,
   WiRL.http.Server,
   WiRL.http.Server.Indy,
   OpenAPI.Model.Classes,
@@ -39,16 +41,10 @@ type
     actStopServer: TAction;
     PortNumberEdit: TEdit;
     Label1: TLabel;
-    Button1: TButton;
-    Memo1: TMemo;
-    Button2: TButton;
-    XMLDocument1: TXMLDocument;
     btnDocumentation: TButton;
     actShowDocumentation: TAction;
     procedure actShowDocumentationExecute(Sender: TObject);
     procedure actShowDocumentationUpdate(Sender: TObject);
-    procedure Button1Click(Sender: TObject);
-    procedure Button2Click(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure actStartServerExecute(Sender: TObject);
     procedure actStartServerUpdate(Sender: TObject);
@@ -61,7 +57,7 @@ type
     APP_PATH = 'app';
     API_PATH = 'openapi';
   private
-    FEngine: TWiRLEngine;
+    FEngine: TWiRLRESTEngine;
     FRESTServer: TWiRLServer;
     function ConfigureOpenAPIDocument: TOpenAPIDocument;
   public
@@ -74,7 +70,9 @@ var
 implementation
 
 uses
+  System.TypInfo,
   WiRL.Core.Utils,
+  WiRL.http.Accept.MediaType,
   WiRL.Core.Metadata.XMLDoc,
   WiRL.Core.OpenAPI.Resource;
 
@@ -93,47 +91,13 @@ begin
   (Sender as TAction).Enabled := Assigned(FRESTServer) and FRESTServer.Active;
 end;
 
-procedure TMainForm.Button1Click(Sender: TObject);
-var
-  LContext: TWiRLXMLDocContext;
-  LApp: TWiRLApplication;
-begin
-  LApp := FEngine.GetApplicationByName('demo');
-  LContext.Proxy := LApp.Proxy;
-  LContext.XMLDocFolder := TWiRLTemplatePaths.Render('{AppPath}\..\..\Docs');
-  TWiRLProxyEngineXMLDoc.Process(LContext);
-end;
-
-procedure TMainForm.Button2Click(Sender: TObject);
-var
-  LXMLDoc: TWiRLProxyEngineXMLDoc;
-  LContext: TWiRLXMLDocContext;
-  LApp: TWiRLApplication;
-var
-  LDoc: IXMLDocument;
-  //LDevNotes, LNodeClass: IXMLNode;
-begin
-  LApp := FEngine.GetApplicationByName('demo');
-  LContext.Proxy := LApp.Proxy;
-  LContext.XMLDocFolder := TWiRLTemplatePaths.Render('{AppPath}\..\..\Docs');
-
-  LXMLDoc := TWiRLProxyEngineXMLDoc.Create(LContext);
-  try
-    LDoc := LXMLDoc.LoadXMLUnit('Server.Resources.Demo');
-    //LNodeClass :=
-    //Memo1.Lines.Text := LXMLDoc.FindClassWithAttribute(LDoc.DocumentElement, 'TParametersResource');
-  finally
-    LXMLDoc.Free;
-  end;
-end;
-
 function TMainForm.ConfigureOpenAPIDocument: TOpenAPIDocument;
 var
   LExtensionObject: TJSONObject;
 begin
   Result := TOpenAPIDocument.Create(TOpenAPIVersion.v303);
 
-  Result.Info.TermsOfService := 'http://swagger.io/terms/';
+  Result.Info.TermsOfService := 'http://api.example.com/terms/';
   Result.Info.Title := 'WiRL OpenAPI Integration Demo';
   Result.Info.Version := '1.0.2';
   Result.Info.Description := 'This is a **demo API** to test [WiRL](https://github.com/delphi-blocks/WiRL) OpenAPI documentation features';
@@ -150,6 +114,11 @@ begin
   LExtensionObject.AddPair('backgroundColor', '#FFFFFF');
   LExtensionObject.AddPair('altText', 'API Logo');
   Result.Info.Extensions.Add('x-logo', LExtensionObject);
+
+
+  //var res := Result.Components.AddResponse('BadRequest', 'Bad Request');
+  //var mt := res.AddMediaType(TMediaType.APPLICATION_JSON);
+  //mt.Schema.SetSchemaReference()
 end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
@@ -162,9 +131,6 @@ begin
   actStopServer.Execute;
 end;
 
-/// <summary>
-/// Bla *bla* bla
-/// </summary>
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   LDocument: TOpenAPIDocument;
@@ -174,19 +140,19 @@ begin
   LDocument := ConfigureOpenAPIDocument;
 
   FEngine :=
-    FRESTServer.AddEngine<TWiRLEngine>(ENG_PATH)
+    FRESTServer.AddEngine<TWiRLRESTEngine>(ENG_PATH)
       .SetEngineName('RESTEngine');
 
   FEngine.AddApplication(APP_PATH)
       .SetAppName('demo')
-      // Test for namespaces
       .SetResources('Server.Resources.Demo.*')
       .SetResources('Server.Resources.Customer.*')
+      .SetResources('Server.Resources.OpenAPI')
       .SetFilters('*')
 
       .Plugin.Configure<IWiRLConfigurationNeon>
         .SetUseUTCDate(True)
-        .SetMemberCase(TNeonCase.CamelCase)
+        .SetMemberCase(TNeonCase.Unchanged)
       .ApplyConfig
 
       .Plugin.Configure<IWiRLConfigurationCORS>
@@ -196,13 +162,51 @@ begin
       .ApplyConfig
 
       .Plugin.Configure<IWiRLConfigurationOpenAPI>
+        .SetNeonConfiguration(
+          TNeonConfiguration.Camel
+            .Rules.ForClass<Exception>
+              .SetIgnoreMembers([
+                'BaseException',
+                'HelpContext',
+                'InnerException',
+                'StackTrace',
+                'StackInfo'])
+          .ApplyConfig
+        )
+
+        // Set the OpenAPI resource (to skip it in the documentation generation)
         .SetOpenAPIResource(TDocumentationResource)
+
+        // Set the Delphi XML documentation output directory (Project -> Options -> Compiler)
         .SetXMLDocFolder('{AppPath}\..\..\Docs')
+
+        // Set the folder to the html UI assets location
         .SetGUIDocFolder('{AppPath}\..\..\UI')
         //.SetGUIDocFolder('{AppPath}\..\..\ReDoc')
-        // Set the OpenAPI document
+
+        // Set the (optional) API logo
         .SetAPILogo('api-logo.png')
+
+        // Set the OpenAPI document for the OpenAPI engine to fill
         .SetAPIDocument(LDocument)
+
+        .SetAPIDocumentCallback(
+          procedure(ADocument: TOpenAPIDocument)
+          begin
+            ADocument.Info.Title := 'WiRL OpenAPI Integration Demo (Changed)';
+
+            ADocument.AddTag('callback', 'User added content');
+
+            var res := ADocument.AddPath('/callback');
+            res.Description := 'This is a test for the callback';
+            res.Summary := 'Sample';
+
+            var op := res.AddOperation(TOperationType.Get);
+            op.Summary := 'Get Sample Data';
+            op.Description := 'Sample Data description';
+          end
+        )
+
       .ApplyConfig
   ;
 

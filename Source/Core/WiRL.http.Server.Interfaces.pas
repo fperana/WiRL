@@ -2,7 +2,7 @@
 {                                                                              }
 {       WiRL: RESTful Library for Delphi                                       }
 {                                                                              }
-{       Copyright (c) 2015-2019 WiRL Team                                      }
+{       Copyright (c) 2015-2023 WiRL Team                                      }
 {                                                                              }
 {       https://github.com/delphi-blocks/WiRL                                  }
 {                                                                              }
@@ -18,13 +18,15 @@ uses
   WiRL.Core.Classes,
   WiRL.Core.Exceptions,
   WiRL.Core.Singleton,
+  WiRL.Core.Context,
+  WiRL.Core.Context.Server,
   WiRL.http.Request,
   WiRL.http.Response;
 
 type
   IWiRLListener = interface
   ['{04C4895A-23EB-46A5-98F0-B25292D7E6FC}']
-    procedure HandleRequest(LRequest: TWiRLRequest; LResponse: TWiRLResponse);
+    procedure HandleRequest(AContext: TWiRLContext; LRequest: TWiRLRequest; LResponse: TWiRLResponse);
   end;
 
   IWiRLServer = interface
@@ -46,6 +48,12 @@ type
     property ThreadPoolSize: Integer read GetThreadPoolSize write SetThreadPoolSize;
     property ServerImplementation: TObject read GetServerImplementation;
     property Listener: IWiRLListener read GetListener write SetListener;
+  end;
+
+  IWiRLServerFactory = interface
+  ['{360F2B44-A164-4C34-A8AA-8E4B11C360B9}']
+    function CreateRequest(AContext, ARequest: TObject): TWiRLRequest;
+    function CreateResponse(AContext, AResponse: TObject): TWiRLResponse;
   end;
 
   TWiRLServerRegistry = class(TDictionary<string, TClass>)
@@ -78,16 +86,16 @@ var
   AServerClass: TClass;
 begin
   if Self.Count < 1 then
-    raise EWiRLException.CreateFmt('CreateServer: no server registered (add "WiRL.http.Server.*" unit to the project)', [AName]);
+    raise EWiRLException.CreateFmt('CreateServer: no server registered (add "WiRL.http.Server.*" units to the project)', [AName]);
 
   if AName = '' then
     AServerClass := GetDefaultClass()
   else if not Self.TryGetValue(AName, AServerClass) then
-    raise EWiRLException.CreateFmt('CreateServer: http server [%s] not registered (add "WiRL.http.Server.*" unit to the project)', [AName]);
+    raise EWiRLException.CreateFmt('CreateServer: http server [%s] not registered (add "WiRL.http.Server.*" units to the project)', [AName]);
 
   LObject := TRttiHelper.CreateInstance(AServerClass);
   if not Supports(LObject, IWiRLServer, Result) then
-    raise EWiRLException.CreateFmt('CreateServer: can''t create a http server with class [%s]', [AServerClass.ClassName]);
+    raise EWiRLException.CreateFmt('CreateServer: can''t create an http server of class [%s]', [AServerClass.ClassName]);
 end;
 
 function TWiRLServerRegistry.GetDefaultClass: TClass;

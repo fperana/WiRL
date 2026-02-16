@@ -63,11 +63,18 @@ type
     class function IsInterfaceOfType(ARttiType: TRttiType; const IID: TGUID;
       const AAllowInherithance: Boolean = True): Boolean; overload; static;
 
+    class function IsInterfaceOfType(ATypeInfo: Pointer; const IID: TGUID;
+      const AAllowInherithance: Boolean = True): Boolean; overload; static;
+
     // Create new value data
     class function CreateNewValue(AType: TRttiType): TValue; static;
 
     // Create instance of class with parameterless constructor
     class function CreateInstanceValue(AType: TRttiType): TValue; overload;
+
+    // Create array of TValue with ALength elements
+    class function CreateArrayValue(AType: TRttiType; ALength: NativeInt): TValue; overload;
+    class function CreateArrayValue(ATypeInfo: PTypeInfo; ALength: NativeInt): TValue; overload;
 
     // Create instance of class with parameterless constructor
     class function CreateInstance(AClass: TClass): TObject;  overload;
@@ -96,6 +103,8 @@ type
     class function GetType(AObject: TRttiObject): TRttiType; overload;
     class function GetType(ATypeInfo: Pointer): TRttiType; overload;
 
+    class function ObjectAsType<T>(AObject: TObject): T; static;
+
     class constructor Create;
     class destructor Destroy;
 
@@ -119,6 +128,7 @@ implementation
 uses
   Generics.Collections,
   System.DateUtils,
+  WiRL.Core.Exceptions,
   WiRL.Core.Utils;
 
 {$IFDEF CUSTOM_ATTRIBUTE_BUG}
@@ -155,7 +165,7 @@ begin
       end;
     end;
   else
-    raise Exception.CreateFmt('Error creating type: %s', [AType.Name]);
+    raise EWiRLServerException.CreateFmt('Error creating type: %s', [AType.Name]);
   end;
 end;
 
@@ -368,6 +378,7 @@ var
   LField: TRttiField;
   LBreak: Boolean;
 begin
+  Result := 0;
   for LField in ARttiType.GetFields do
   begin
     LBreak := False;
@@ -456,7 +467,7 @@ begin
   else if AObject is TRttiManagedField then
     Result := TRttiManagedField(AObject).FieldType
   else
-    raise Exception.Create('Object doesn''t have a type');
+    raise EWiRLServerException.Create('Object doesn''t have a type');
 end;
 
 class function TRttiHelper.GetType(ATypeInfo: Pointer): TRttiType;
@@ -482,6 +493,15 @@ class function TRttiHelper.IsDynamicArrayOf<T>(ARttiType: TRttiType;
   const AAllowInherithance: Boolean): Boolean;
 begin
   Result := TRttiHelper.IsDynamicArrayOf(ARttiType, TClass(T), AAllowInherithance);
+end;
+
+class function TRttiHelper.IsInterfaceOfType(ATypeInfo: Pointer;
+  const IID: TGUID; const AAllowInherithance: Boolean): Boolean;
+var
+  LType: TRttiType;
+begin
+  LType := TRttiHelper.Context.GetType(ATypeInfo);
+  Result := TRttiHelper.IsInterfaceOfType(LType, IID);
 end;
 
 class function TRttiHelper.IsInterfaceOfType(ARttiType: TRttiType;
@@ -518,6 +538,11 @@ class function TRttiHelper.IsObjectOfType<T>(ARttiType: TRttiType;
   const AAllowInherithance: Boolean): Boolean;
 begin
   Result := TRttiHelper.IsObjectOfType(ARttiType, TClass(T), AAllowInherithance);
+end;
+
+class function TRttiHelper.ObjectAsType<T>(AObject: TObject): T;
+begin
+  Result := TValue.From<TObject>(AObject).AsType<T>;
 end;
 
 class function TRttiHelper.FindAttribute<T>(AType: TRttiObject): T;
@@ -567,12 +592,26 @@ begin
     end;
   end;
   if not Assigned(Result) then
-    raise Exception.CreateFmt('TRttiHelper.CreateInstance: can''t create object [%s]', [AType.Name]);
+    raise EWiRLServerException.CreateFmt('TRttiHelper.CreateInstance: can''t create object [%s]', [AType.Name]);
 end;
 
 class constructor TRttiHelper.Create;
 begin
   FContext := TRttiContext.Create;
+end;
+
+class function TRttiHelper.CreateArrayValue(ATypeInfo: PTypeInfo;
+  ALength: NativeInt): TValue;
+var
+  LArrayPtr: Pointer;
+begin
+  LArrayPtr := nil;
+  DynArraySetLength(LArrayPtr, ATypeInfo, 1, @ALength);
+  try
+    TValue.Make(@LArrayPtr, ATypeInfo, Result); // makes copy of array
+  finally
+    DynArrayClear(LArrayPtr, ATypeInfo);
+  end;
 end;
 
 class function TRttiHelper.CreateInstance(const ATypeName: string;
@@ -582,6 +621,12 @@ var
 begin
   LType := Context.FindType(ATypeName);
   Result := CreateInstance(LType, Args);
+end;
+
+class function TRttiHelper.CreateArrayValue(AType: TRttiType;
+  ALength: NativeInt): TValue;
+begin
+  Result := CreateArrayValue(AType.Handle, ALength);
 end;
 
 {$IFDEF CUSTOM_ATTRIBUTE_BUG}
